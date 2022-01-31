@@ -1,25 +1,23 @@
-"""TODO:refactor"""
-
-import csv
 import argparse
-from datetime import datetime
+import csv
 import json
+from datetime import datetime
 
+all_flights = list()
+outbound_routes = list()
+round_routes = list()
 
-flights = list()
-possible_routes = list()
-possible_round_routes = list()
 header = ['flight_no', 'origin', 'destination', 'departure',
           'arrival', 'base_price', 'bag_price', 'bags_allowed']
 
 parser = argparse.ArgumentParser()
 parser.add_argument('csv_file', help="Path to the CSV file")
-parser.add_argument('departure', help="Departure airport code")
+parser.add_argument('origin', help="Origin airport code")
 parser.add_argument('destination', help="Destination airport code")
-parser.add_argument('-b', '--bags', type=int, required=False,
+parser.add_argument('--bags', type=int, required=False,
                     default=0, help="Required number of bags")
-parser.add_argument('-r', '--round', '--return',action="store_true",
-                    help="Round trip")
+parser.add_argument('--return', action="store_true",
+                    dest='round', help="Round trip")
 args = parser.parse_args()
 
 
@@ -36,128 +34,130 @@ class Flight:
 
 
 def import_csv(file):
+    """Takes file path as input, creates "Flight" objects from rows, appends "all_flights" list with the objects"""
     try:
         with open(file, 'r') as f:
             csvreader = csv.reader(f)
             if next(csvreader) != header:
                 raise Exception("The CSV doesn't seem to be correct")
             for row in csvreader:
-                flights.append(
+                all_flights.append(
                     Flight(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]))
     except Exception as e:
         print("The following exception happened:", e)
 
 
 def is_connection(first_flight, second_flight, track, direction):
-    layover_hours = (second_flight.departure - first_flight.arrival).total_seconds() / \
-        3600 if second_flight.departure > first_flight.arrival else 0
+    """ Takes the current considered flight, possible connecting flight, the track of previous flights and the direction where the flight cannot go.
+        Returns with bool that shows if the second flight is possible connection."""
+    layover_hours = (second_flight.departure - first_flight.arrival).total_seconds() / 3600 if second_flight.departure > first_flight.arrival else 0
     for flight in track:
         if second_flight.destination == flight.origin:
             return False
     return second_flight.origin == first_flight.destination and layover_hours >= 1 and layover_hours < 6 and second_flight.destination != direction
 
 
-def find_route():
-    frontier = [flight for flight in flights if flight.origin ==
-                args.departure and flight.bags_allowed >= args.bags]
-
+def find_outbound_route():
+    """Finds outbound routes between origin and destination, appends it to "outbound_routes" list """
+    frontier = [flight for flight in all_flights if flight.origin == args.origin]
     track = list()
 
     while 1:
 
-        #Check if there is no more possible flight on the list to be checked
+        # Check if there is no more possible flight on the list to be checked
         if len(frontier) == 0:
             return
 
-        #Remove the latest flight from the frontier
+        # Remove the latest flight from the frontier, adds it to current
         current = frontier.pop()
 
-        #Delete previous flights from track if they aren't connections
+        # Delete previous flights from track if they aren't connections
         for i in range(len(track) - 1, -1, -1):
-            if is_connection(track[i], current, track, args.departure):
+            if is_connection(track[i], current, track, args.origin):
                 break
             track.pop()
 
-        #Add the flight to the track
+        # Add the flight to the track
         track.append(current)
 
-        #Check if the current flight is the destination
+        # Check if the current flight is the destination
         if current.destination == args.destination:
             route = [flight for flight in track]
-            possible_routes.append(route)
+            outbound_routes.append(route)
             track.pop()
             continue
 
-        #Check for possible connections for the current flight, if there is append it to the frontier
-        [frontier.append(flight)
-         for flight in flights if is_connection(current, flight, track, args.departure) and flight.bags_allowed >= args.bags]
+        # Check for possible connections for the current flight, if there is append it to the frontier
+        [frontier.append(flight) for flight in all_flights if is_connection(current, flight, track, args.origin) and flight.bags_allowed >= args.bags]
 
 
-def find_round():
-    for one_way_route in possible_routes:
+def find_round_route():
+    """Finds return routes between origin and destination, merges the return route to the outbound, appends it to "round_routes" list"""
+    for one_way_route in outbound_routes:
         return_origin = one_way_route[-1]
-        frontier = [flight for flight in flights if flight.origin == return_origin.destination and flight.departure > return_origin.arrival and return_origin.bags_allowed >= args.bags]
+        frontier = [flight for flight in all_flights if flight.origin == return_origin.destination and flight.departure > return_origin.arrival]
         track = list()
 
         while 1:
 
-            #Check if there is no more possible flight on the list to be checked
+            # Check if there is no more possible flight on the list to be checked
             if len(frontier) == 0:
                 break
 
-            #Remove the latest flight from the frontier
+            # Remove the latest flight from the frontier, adds it to current
             current = frontier.pop()
 
-            #Delete previous flights from track if they aren't connections
+            # Delete previous flights from track if they aren't connections
             for i in range(len(track) - 1, -1, -1):
                 if is_connection(track[i], current, track, args.destination):
                     break
                 track.pop()
 
-            #Add the flight to the trac
+            # Add the flight to the trac
             track.append(current)
 
-            #Check if the current flight is the destination and validate route
-            if current.destination == args.departure:
+            # Check if the current flight is the destination and validate route
+            if current.destination == args.origin:
                 full_route = [flight for flight in one_way_route]
                 [full_route.append(flight) for flight in track]
-                possible_round_routes.append(full_route)
+                round_routes.append(full_route)
                 track.pop()
                 continue
 
-            #Check for possible connections for the current flight, if there is append it to the frontier
+            # Check for possible connections for the current flight, if there is append it to the frontier
             [frontier.append(flight)
-             for flight in flights if is_connection(current, flight, track, args.destination) and flight.bags_allowed >= args.bags]
+             for flight in all_flights if is_connection(current, flight, track, args.destination)]
 
 
 def serialize(routes):
+    """Takes the list of routes, creates and returns a json object"""
     output = list()
     for route in routes:
         data = dict()
-        flightlist = list()
-        for flight in route:
-            flightlist.append(vars(flight))
-        
-        data['flights'] = flightlist
+        flight_list = list()
+        [flight_list.append(vars(flight)) for flight in route]
+        data['flights'] = flight_list
         data['bags_allowed'] = min(
             route, key=lambda x: x.bags_allowed).bags_allowed
+        if data['bags_allowed'] < args.bags:
+            continue
         data["bags_count"] = args.bags
         data["destination"] = args.destination
-        data["origin"] = args.departure
+        data["origin"] = args.origin
         data["total_price"] = sum(
             bag.bag_price * args.bags for bag in route) + sum(flight.base_price for flight in route)
-        data["travel_time"] = route[-1].arrival - \
-            route[0].departure if len(
-                route) > 1 else route[0].arrival - route[0].departure
+        data["travel_time"] = route[-1].arrival - route[0].departure if len(route) > 1 else route[0].arrival - route[0].departure
         output.append(data)
-    return  sorted(output, key=lambda x: x['total_price'])
+    return sorted(output, key=lambda x: x['total_price'])
 
 
 if __name__ == "__main__":
     import_csv(args.csv_file)
-    find_route()
+    find_outbound_route()
     if args.round:
-        find_round()
-        print(json.dumps(serialize(possible_round_routes), indent=4, default=str))
+        find_round_route()
+        print(json.dumps(serialize(round_routes), indent=4, default=str)) if len(
+            round_routes) > 0 else print('No round trip is possible between origin and destination')
     else:
-        print(json.dumps(serialize(possible_routes), indent=4, default=str))
+        print(json.dumps(serialize(outbound_routes), indent=4, default=str)) if len(
+            outbound_routes) > 0 else print('No route is possible between origin and destination')
