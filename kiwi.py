@@ -46,11 +46,13 @@ def import_csv(file):
     except Exception as e:
         print("The following exception happened:", e)
 
+def flight_difference_in_hours(first_flight, second_flight):
+    return (first_flight - second_flight).total_seconds() / 3600
 
 def is_connection(first_flight, second_flight, track, direction):
     """ Takes the current considered flight, possible connecting flight, the track of previous flights and the direction where the flight cannot go.
         Returns with bool that shows if the second flight is possible connection."""
-    layover_hours = (second_flight.departure - first_flight.arrival).total_seconds() / 3600 if second_flight.departure > first_flight.arrival else 0
+    layover_hours = flight_difference_in_hours(second_flight.departure, first_flight.arrival) if second_flight.departure > first_flight.arrival else 0
     for flight in track:
         if second_flight.destination == flight.origin:
             return False
@@ -62,11 +64,7 @@ def find_outbound_route():
     frontier = [flight for flight in all_flights if flight.origin == args.origin]
     track = list()
 
-    while 1:
-
-        # Check if there is no more possible flight on the list to be checked
-        if len(frontier) == 0:
-            return
+    while frontier:
 
         # Remove the latest flight from the frontier, adds it to current
         current = frontier.pop()
@@ -90,6 +88,8 @@ def find_outbound_route():
         # Check for possible connections for the current flight, if there is append it to the frontier
         [frontier.append(flight) for flight in all_flights if is_connection(current, flight, track, args.origin) and flight.bags_allowed >= args.bags]
 
+    return
+
 
 def find_round_route():
     """Finds return routes between origin and destination, merges the return route to the outbound, appends it to "round_routes" list"""
@@ -98,11 +98,7 @@ def find_round_route():
         frontier = [flight for flight in all_flights if flight.origin == return_origin.destination and flight.departure > return_origin.arrival]
         track = list()
 
-        while 1:
-
-            # Check if there is no more possible flight on the list to be checked
-            if len(frontier) == 0:
-                break
+        while frontier:
 
             # Remove the latest flight from the frontier, adds it to current
             current = frontier.pop()
@@ -127,6 +123,8 @@ def find_round_route():
             # Check for possible connections for the current flight, if there is append it to the frontier
             [frontier.append(flight)
              for flight in all_flights if is_connection(current, flight, track, args.destination)]
+
+    return
 
 
 def serialize(routes):
